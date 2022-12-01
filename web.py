@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import pickle
 
 #
 # with st.sidebar:
@@ -300,80 +301,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 
-def getModel(model_type = "linear"):
-    ''' 
-    inputs :
-    model_type : model class  
-
-    outputs : 
-    model       : fitted model depending of model_type
-    param_grid  : assiocated parameter grid for gridsearch
-    '''
-    if model_type == "linear":
-        model = LinearRegression()
-        param_grid = None
-
-    elif model_type == "glm":
-        model = PoissonRegressor()
-        param_grid = ParameterGrid({
-            "alpha":[[x] for x in np.linspace(0, 100, 3)],
-            "max_iter":[[x] for x in np.random.randint(1, 1000, (3,))]
-        })
-
-    elif model_type == "bayesRidge":
-        model = BayesianRidge()
-        param_grid = ParameterGrid({
-            "n_iter":[[x] for x in np.random.randint(100, 1000, 3)],
-            "alpha_1":[[x] for x in np.linspace(1e-9, 1e-3, 3)],
-            "alpha_2":[[x] for x in np.linspace(1e-9, 1e-3, 3)],
-            "lambda_1":[[x] for x in np.linspace(1e-9, 1e-3, 3)],
-            "lambda_2":[[x] for x in np.linspace(1e-9, 1e-3, 3)]
-        })
-
-    elif model_type == "randomForest":
-        model = RandomForestClassifier()
-        param_grid = ParameterGrid({
-            "n_estimators":[[x] for x in np.random.randint(50, 150, 3)],
-            "criterion":[["gini"],["entropy"],["log_loss"]],
-            "max_depth":[[x] for x in np.random.randint(10, 500, (3,))],
-            "max_features":[["sqrt"],["log2"]]
-        })
-
-    elif model_type == "KNN":
-        model = KNeighborsClassifier()
-        param_grid = ParameterGrid({
-            "n_neighbors":[[x] for x in[1, 2, 3, 5, 10]],
-            "weights":[["uniform"],["distance"]],
-            "algorithm":[["auto"],["ball_tree"],["kd_tree"]],
-            "p":[[x] for x in np.random.randint(1, 53, 3)]
-        })
-
-    elif model_type == "MLPCLassifier":
-        model = MLPClassifier()
-        param_grid = ParameterGrid({
-            "hidden_layer_sizes":[(25,),(50,),(100,),(125,),(150,)],
-            "activation": [[x] for x in ["identity", "logistic","tanh","relu"]],#note, this is dumb to set all layers to the same activation functions
-            "solver":[[x] for x in ["lbfgs","sgd","adam"]]
-        })
-    
-    else : 
-        model = sklearn.linear_model.LinearRegression()
-        param_grid = None
-
-    return model, param_grid
-
-def getSubBestModel(model, param_grid, X_train, y_train):
-    classifier = GridSearchCV(model,
-                                    param_grid=param_grid,
-                                    # n_iter=10,
-                                    cv=5,
-                                    verbose=2,
-                                    # random_state=420,
-                                    n_jobs=-1
-                                    )
-    classifier.fit(X_train, y_train)
-    return classifier.best_estimator_
-
 st.write(''' 
     Here a some models we'll experiment with.
 ''')
@@ -389,25 +316,6 @@ models_names = [
 
 st.write(models_names)
 
-models = []
-t = []
-
-prog = 0
-for mn in models_names:
-    st.progress(prog)
-    if mn != "linear":
-        start = time.time()
-        model, param_grid = getModel(mn)
-        models += [getSubBestModel(model, param_grid=param_grid, X_train=train_x, y_train=train_y)]
-        end = time.time()
-        t += [end-start]
-        prog += t/600
-prog = 100
-
-lin, _ = getModel()
-lin.fit(train_x, train_y)
-models += [lin]
-
 st.write(''' ## Comparaison 
 ---''')
 
@@ -417,6 +325,18 @@ def getAccLlog(model, test_x, test_y):
     ll = log_loss(test_y, prediction)
     acc = accuracy_score(test_y, prediction)
     return ll, acc
+
+models=[]
+
+import joblib
+
+for i in models_names:
+    filename = f'model-{i}.joblib'
+    with open(filename, 'rb') as fo:
+        models += [joblib.load(fo)]
+
+for m in models:
+    m.fit(train_x, train_y)
 
 conf_mats = []
 for m in models:
@@ -428,11 +348,11 @@ results = pd.DataFrame()
 results["model"] = models_names
 results = results.join(pd.DataFrame( np.array(conf_mats).reshape((6,2)).tolist(),
                         columns=["log loss", "accuracy"]))
-results["time"] = t[:1] + [0] + t[1:]
+results["time"] = [156, 1, 2, 5, 125, 100]
 
 
 results.sort_values(["log loss","accuracy"], inplace=True)
-
+results["accuracy"] *= 100
 st.write(results)
 
 st.write(''' 
@@ -442,36 +362,21 @@ st.write('''
     First some plots about the accuracy and log loss (+ relative accuracy)
 ''')
 
-sns.set_color_codes("muted")
-sns.barplot(data=results, x="accuracy", y="model", color="b")
+# dresults = results.copy()
+# dresults[["log loss", "accuracy"]] = results[["log loss", "accuracy"]].diff(axis=0)
 
-plt.xlabel('Accuracy %')
-plt.title('Classifier Accuracy')
-plt.show()
+results[["mean accuracy diff", "mean log loss diff"]] = results[["accuracy","log loss"]]-results[["accuracy","log loss"]].mean()
+fig7 = px.bar(results, x="model", y="mean accuracy diff", color="time",
+                barmode='group',
+                category_orders={"model":models_names})
+fig7.update_layout(barmode='relative')
+st.plotly_chart(fig7)
 
-sns.set_color_codes("muted")
-sns.barplot(data=results, x='log loss', y='model', color="g")
-
-plt.xlabel('Log Loss')
-plt.title('Classifier Log Loss')
-plt.show()
-
-dresults = -(results[["log loss", "accuracy"]].mean() - results[["log loss", "accuracy"]])
-dresults["model"] = results["model"]
-
-sns.set_color_codes("muted")
-sns.barplot(data=dresults, x="accuracy", y="model", color="b")
-
-plt.xlabel('Accuracy % - mean')
-plt.title('Classifier Relative Accuracy')
-plt.show()
-
-sns.set_color_codes("muted")
-sns.barplot(data=dresults, x='log loss', y='model', color="g")
-
-plt.xlabel('Log Loss - mean')
-plt.title('Classifier Relative Log Loss')
-plt.show()
+fig8 = px.bar(results, x="model", y="mean log loss diff", color="time",
+                barmode='group',
+                category_orders={"model":models_names})
+fig8.update_layout(barmode='relative')
+st.plotly_chart(fig8)
 
 st.write('''
 We can deduce that the Machine Learning Algorithm is just as good as the BayesRidge model. They have casi exact accuracy and log loss. This means that they cluster about the same way points. It would be interesting to look under the hood and maybe dive deeper why they behave such.
@@ -480,3 +385,69 @@ We can deduce that the Machine Learning Algorithm is just as good as the BayesRi
 st.write(''' Now it is your turn to try to write a suspicious email.
 We will see how our differents models respond to it and if it is so suspicious !
 ''' )
+
+import re
+from itertools import islice    
+
+txt = st.text_area('Text to analyze', '''Hello, I am hear to ear about what you said last time. I wen to the address but nobody was there ! I can't believed i got scammed. Anyway, i hope this doesn't bother you :) Have fun with your money $ !
+I AM JUST PISSED OFF ANY WAY
+''')
+
+res = re.split(',| |_|-|!', txt)
+
+# st.write(res)
+
+mots = df.columns.tolist()[:-10]
+mots_dict = dict.fromkeys(mots, 0)
+for x in res:
+    if x in mots:
+        mots_dict[x] += 1
+
+ctlt = sum([1 for c in txt if c.isupper()])
+ctll = max([sum(1 for c in x if c.isupper()) for x in res])
+ctla = np.mean([sum(1 for c in x if c.isupper()) for x in res])
+
+N = len(mots)
+
+# st.write(mots)
+# st.write(df.columns.tolist()[-10:-4])
+
+sp = re.split('', txt)
+
+pv_count = sum(c==";" for c in sp)
+p_count  = sum(c=="(" for c in sp) + sum(c==")" for c in sp)
+b_count  = sum(c=="[" for c in sp) + sum(c=="]" for c in sp)
+ex_count = sum(c=="!" for c in sp)
+do_count = sum(c=="$" for c in sp) + sum(c=="€" for c in sp)
+ha_count = sum(c=="#" for c in sp)
+
+occ = list(mots_dict.values())
+occ += [pv_count , p_count, b_count,
+        ex_count, do_count, ha_count]
+
+freq = 100*np.array(occ)/sum(occ)
+freq = np.concatenate([freq, np.array([ctla, ctll, ctlt])])
+
+freq = freq/train_x.mean()
+freq = freq.T
+# st.table(freq)
+
+freq = pd.DataFrame(freq).T
+
+st.write(freq)
+
+pred = []
+
+for m in models:
+    pred += [m.predict(freq)>0.5]
+
+
+pred_df = pd.DataFrame(zip(models_names, pred))
+pred_df.index = models_names
+pred_df.drop(pred_df.columns[0], inplace=True, axis=1)
+
+
+
+st.write('Spam or not spam ? :', )
+
+st.write(pred_df)
