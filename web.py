@@ -145,8 +145,6 @@ results[["mean accuracy diff", "mean log loss diff"]] = results[["accuracy","log
 if page == page_name[0]:
     st.write(''' ## Data set
 
-        ---
-
         SPAM E-MAIL DATABASE ATTRIBUTES (in .names format)
 
         48 continuous real [0,100] attributes of type word_freq_WORD 
@@ -242,9 +240,6 @@ elif page == page_name[1]:
 ###################################### Visualization
 
     st.write('''
-        ---
-        ---
-
         ## Data visualization
 
         ---
@@ -306,12 +301,7 @@ elif page == page_name[1]:
     corr_sum = corr.sum().sort_values(ascending=False)
     corr_cols = corr.columns
 
-
-    st.write(corr_sum[:5])
-
-    fig5 = px.histogram(df[corr_cols[1:5]],
-                        title="Stacked histogram of the most correlated variables")
-
+    
     st.write('''
         ### Histograms and box plots
 
@@ -320,18 +310,26 @@ elif page == page_name[1]:
         
         ''')
 
+    clist3 = df.columns
+    choices3 = st.multiselect("Histogram variables", clist3)
+    
+    fig5 = px.histogram(df[choices3],
+                        title="Stacked histogram of above variables colored as spam/not spam", 
+                        color=df[df.columns[-1]])
+
+
     st.plotly_chart(fig5)
 
     st.write(''' 
         It appears highly correlated variables are mostly centered at $0$. An exeption is $capital\_run\_length\_longest$. One key factor of this is that we took care of the outliers via capping them to the $99$%, this can explain the behavior from the $1+$ side.
         ''')
 
-    
-    st.dataframe(df)
+    clist4 = df.columns
+    choices4 = st.multiselect("Boxplot variables", clist4)
 
-    fig6 = px.box(  df[df.columns[-15:]],
-                    color="y",
-                    title="Box plot of last 14 variables")
+    fig6 = px.box(  df[choices4],
+                    color=df[df.columns[-1]],
+                    title="Box plot abobe variables")
 
     st.plotly_chart(fig6)
 
@@ -444,25 +442,28 @@ else :
     freq = np.concatenate([freq, np.array([ctla, ctll, ctlt])])
 
     freq = freq/train_x.mean()
-    freq = freq.T
-    # st.table(freq)
 
     freq = pd.DataFrame(freq).T
-
-    st.write(freq)
 
     pred = []
 
     for m in models:
-        pred += [m.predict(freq)>0.5]
+        try :
+            pred += [m.predict(freq)>0.5]
+        except Exception as e:
+            st.write("No original keywords recognized in given text.")
 
-
-    pred_df = pd.DataFrame(zip(models_names, pred))
-    pred_df.index = models_names
-    pred_df.drop(pred_df.columns[0], inplace=True, axis=1)
-
+    try : 
+        pred_df = pd.DataFrame(zip(models_names, pred))
+        pred_df.index = models_names
+        pred_df.drop(pred_df.columns[0], inplace=True, axis=1)
+    except Exception as e:
+        print(e)
 
 
     st.write('Spam or not spam ? :', )
 
-    st.write(pred_df)
+    try:
+        st.write(pred_df)
+    except Exception as e:
+        st.write(e)
